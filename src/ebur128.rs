@@ -263,36 +263,32 @@ fn calc_gating_block(
     let mut sum = 0.0;
 
     let channels = channel_map.len();
-    assert!(audio_data_index <= audio_data.len());
     assert!(audio_data.len() % channels == 0);
-    assert!(audio_data_index % channels == 0);
+    let audio_data_stride = audio_data.len() / channels;
+    assert!(audio_data_index <= audio_data_stride);
 
     for (c, channel) in channel_map.iter().enumerate() {
         if *channel == Channel::Unused {
             continue;
         }
 
+        let audio_data = &audio_data[(c * audio_data_stride)..((c + 1) * audio_data_stride)];
+
         let mut channel_sum = 0.0;
 
         // XXX: Don't use channel_sum += sum() here because that gives slightly different
         // results than the C version because of rounding errors
-        if audio_data_index < frames_per_block * channels {
-            for frame in audio_data[..audio_data_index].chunks_exact(channels) {
-                channel_sum += frame[c] * frame[c];
+        if audio_data_index < frames_per_block {
+            for frame in &audio_data[..audio_data_index] {
+                channel_sum += *frame * *frame;
             }
 
-            for frame in audio_data
-                [(audio_data.len() - frames_per_block * channels + audio_data_index)..]
-                .chunks_exact(channels)
-            {
-                channel_sum += frame[c] * frame[c];
+            for frame in &audio_data[(audio_data.len() - frames_per_block + audio_data_index)..] {
+                channel_sum += *frame * *frame;
             }
         } else {
-            for frame in audio_data
-                [(audio_data_index - frames_per_block * channels)..audio_data_index]
-                .chunks_exact(channels)
-            {
-                channel_sum += frame[c] * frame[c];
+            for frame in &audio_data[(audio_data_index - frames_per_block)..audio_data_index] {
+                channel_sum += *frame * *frame;
             }
         }
 
@@ -620,15 +616,17 @@ impl EbuR128 {
             let num_frames = src.len() / self.channels as usize;
             let needed_samples = self.needed_frames * self.channels as usize;
 
-            let dest = &mut self.audio_data
-                [self.audio_data_index..(self.audio_data_index + needed_samples)];
-
             if num_frames >= self.needed_frames {
                 let (current_frame, next_src) = src.split_at(needed_samples);
                 src = next_src;
-                self.filter.process(current_frame, dest, &self.channel_map);
+                self.filter.process(
+                    current_frame,
+                    &mut *self.audio_data,
+                    self.audio_data_index,
+                    &self.channel_map,
+                );
 
-                self.audio_data_index += needed_samples;
+                self.audio_data_index += self.needed_frames;
                 if self.mode.contains(Mode::I) {
                     let energy = calc_gating_block(
                         self.samples_in_100ms * 4,
@@ -648,17 +646,21 @@ impl EbuR128 {
                     }
                 }
 
-                if self.audio_data_index == self.audio_data.len() {
+                if self.audio_data_index == self.audio_data.len() / self.channels as usize {
                     self.audio_data_index = 0;
                 }
 
                 // 100ms are needed for all blocks besides the first one
                 self.needed_frames = self.samples_in_100ms;
             } else {
-                self.filter
-                    .process(src, &mut dest[..src.len()], &self.channel_map);
+                self.filter.process(
+                    src,
+                    &mut *self.audio_data,
+                    self.audio_data_index,
+                    &self.channel_map,
+                );
 
-                self.audio_data_index += src.len();
+                self.audio_data_index += num_frames;
                 if self.mode.contains(Mode::LRA) {
                     self.short_term_frame_counter += num_frames;
                 }

@@ -153,29 +153,40 @@ impl Filter {
         &mut self,
         src: &[T],
         dest: &mut [f64],
+        dest_index: usize,
         channel_map: &[crate::ebur128::Channel],
     ) {
         let ftz = ftz::Ftz::new();
 
-        assert!(src.len() == dest.len());
         assert!(src.len() % self.channels as usize == 0);
         assert!(dest.len() % self.channels as usize == 0);
-        assert!(src.len() / self.channels as usize == dest.len() / self.channels as usize);
         assert!(channel_map.len() == self.channels as usize);
         assert!(self.filter_state.len() == self.channels as usize);
 
-        // TODO: Deinterleaving into a &mut [f64] as a first step seems beneficial and
-        // would also prevent the deinterleaving that now happens inside check_true_peak()
-        // anyway
+        // Deinterleave and convert to f64 as a first step
+        let frames = src.len() / self.channels as usize;
+        let dest_stride = dest.len() / self.channels as usize;
+        assert!(dest_index + frames <= dest_stride);
+
+        for (s, i) in src.chunks_exact(self.channels as usize).enumerate() {
+            for (c, i) in i.iter().enumerate() {
+                // Safety: dest_stride * channels == dest.len() per construction above and
+                // dest_index + frames == dest_index + max(s) <= dest_stride so we're always
+                // inside the bounds
+                *unsafe { dest.get_unchecked_mut(dest_stride * c + dest_index + s) } = i.as_f64();
+            }
+        }
 
         if self.calculate_sample_peak {
             assert!(self.sample_peak.len() == self.channels as usize);
 
-            for frame in src.chunks_exact(self.channels as usize) {
-                for (c, sample) in frame.iter().enumerate() {
-                    let v = sample.as_f64().abs();
-                    if v > self.sample_peak[c] {
-                        self.sample_peak[c] = v;
+            for (samples, sample_peak) in dest
+                .chunks_exact(dest_stride)
+                .zip(self.sample_peak.iter_mut())
+            {
+                for sample in &samples[dest_index..(dest_index + frames)] {
+                    if *sample > *sample_peak {
+                        *sample_peak = *sample;
                     }
                 }
             }
@@ -183,25 +194,25 @@ impl Filter {
 
         if let Some(ref mut tp) = self.tp {
             assert!(self.true_peak.len() == self.channels as usize);
-            tp.check_true_peak(src, &mut *self.true_peak);
+            tp.process(dest, dest_index, frames, &mut *self.true_peak);
         }
 
-        for (c, channel_map) in channel_map.iter().enumerate() {
+        for ((channel_map, dest), filter_state) in channel_map
+            .iter()
+            .zip(dest.chunks_exact_mut(dest_stride))
+            .zip(self.filter_state.iter_mut())
+        {
             if *channel_map == crate::ebur128::Channel::Unused {
                 continue;
             }
 
-            let filter_state = &mut self.filter_state[c];
-            for (src, dest) in src
-                .chunks_exact(self.channels as usize)
-                .zip(dest.chunks_exact_mut(self.channels as usize))
-            {
-                filter_state[0] = src[c].as_f64()
+            for sample in &mut dest[dest_index..(dest_index + frames)] {
+                filter_state[0] = *sample
                     - self.a[1] * filter_state[1]
                     - self.a[2] * filter_state[2]
                     - self.a[3] * filter_state[3]
                     - self.a[4] * filter_state[4];
-                dest[c] = self.b[0] * filter_state[0]
+                *sample = self.b[0] * filter_state[0]
                     + self.b[1] * filter_state[1]
                     + self.b[2] * filter_state[2]
                     + self.b[3] * filter_state[3]
@@ -224,7 +235,7 @@ impl Filter {
     }
 }
 
-pub trait AsF64: crate::true_peak::AsF32 + Copy + PartialOrd {
+pub trait AsF64: Copy + PartialOrd {
     fn as_f64(self) -> f64;
 }
 
@@ -424,6 +435,7 @@ mod tests {
             f.process(
                 &signal.data[..(frames * signal.channels as usize)],
                 &mut data_out,
+                0,
                 &channel_map,
             );
 
@@ -498,6 +510,7 @@ mod tests {
             f.process(
                 &signal.data[..(frames * signal.channels as usize)],
                 &mut data_out,
+                0,
                 &channel_map,
             );
 
@@ -572,6 +585,7 @@ mod tests {
             f.process(
                 &signal.data[..(frames * signal.channels as usize)],
                 &mut data_out,
+                0,
                 &channel_map,
             );
 
@@ -646,6 +660,7 @@ mod tests {
             f.process(
                 &signal.data[..(frames * signal.channels as usize)],
                 &mut data_out,
+                0,
                 &channel_map,
             );
 

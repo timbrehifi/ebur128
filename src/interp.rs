@@ -36,7 +36,7 @@ pub struct Interp {
     // TODO: Try with SmallVec
     filter: Vec<Filter>,
     /// List of delay buffers (one for each channel)
-    z: Vec<f32>,
+    z: Vec<f64>,
     /// Current delay buffer index
     zi: usize,
 }
@@ -105,8 +105,12 @@ impl Interp {
         self.factor
     }
 
-    pub fn process(&mut self, src: &[f32], dst: &mut [f32]) {
-        assert!(src.len() * self.factor == dst.len());
+    pub fn process(&mut self, src: &[f64], src_index: usize, frames: usize, dst: &mut [f64]) {
+        let src_stride = src.len() / self.channels as usize;
+
+        assert!(src_index + frames <= src_stride);
+        assert!(frames * self.channels as usize * self.factor == dst.len());
+
         assert!(self.z.len() == self.delay * self.channels as usize);
         assert!(self.filter.len() == self.factor);
         assert!(self.zi < self.delay);
@@ -115,15 +119,16 @@ impl Interp {
             return;
         }
 
-        let frames = src.len() / self.channels as usize;
-
-        for (src, (dst, z)) in src.chunks_exact(frames).zip(
+        for (src, (dst, z)) in src.chunks_exact(src_stride).zip(
             dst.chunks_exact_mut(frames * self.factor)
                 .zip(self.z.chunks_exact_mut(self.delay)),
         ) {
             let mut zi = self.zi;
 
-            for (src, dst) in src.iter().zip(dst.chunks_exact_mut(self.factor)) {
+            for (src, dst) in src[src_index..(src_index + frames)]
+                .iter()
+                .zip(dst.chunks_exact_mut(self.factor))
+            {
                 // Add sample to delay buffer
                 //
                 // TODO Ringbuffer without bounds checks for z/zi
@@ -140,10 +145,10 @@ impl Interp {
                             i += self.delay as i32;
                         }
                         // Safety: zi is checked to be between 0 and self.delay
-                        acc += *unsafe { z.get_unchecked(i as usize) } as f64 * c;
+                        acc += *unsafe { z.get_unchecked(i as usize) } * c;
                     }
 
-                    *dst = acc as f32;
+                    *dst = acc;
                 }
 
                 zi += 1;
@@ -197,21 +202,21 @@ mod tests {
 
         {
             // Need to deinterleave the input and interleave the output
-            let mut data_in_tmp = vec![0.0f32; signal.data.len()];
-            let mut data_out_tmp = vec![0.0f32; signal.data.len() * factor];
+            let mut data_in_tmp = vec![0.0f64; signal.data.len()];
+            let mut data_out_tmp = vec![0.0f64; signal.data.len() * factor];
 
             for (c, out) in data_in_tmp.chunks_exact_mut(frames).enumerate() {
                 for (s, out) in out.iter_mut().enumerate() {
-                    *out = signal.data[signal.channels as usize * s + c];
+                    *out = signal.data[signal.channels as usize * s + c] as f64;
                 }
             }
 
             let mut interp = Interp::new(49, factor, signal.channels);
-            interp.process(&data_in_tmp, &mut data_out_tmp);
+            interp.process(&data_in_tmp, 0, frames, &mut data_out_tmp);
 
             for (c, i) in data_out_tmp.chunks_exact(frames * factor).enumerate() {
                 for (s, i) in i.iter().enumerate() {
-                    data_out[signal.channels as usize * s + c] = *i;
+                    data_out[signal.channels as usize * s + c] = *i as f32;
                 }
             }
         }
