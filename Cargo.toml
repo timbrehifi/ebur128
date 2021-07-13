@@ -1,6 +1,6 @@
 [package]
 name = "ebur128"
-version = "0.1.5"
+version = "0.1.6"
 authors = ["Sebastian Dröge <sebastian@centricular.com>"]
 edition = "2018"
 categories = ["multimedia"]
@@ -22,7 +22,7 @@ cc = { version = "1.0", optional = true }
 
 [dev-dependencies]
 criterion = "0.3"
-float_eq = "0.5"
+float_eq = "0.6"
 ebur128-c = { package = "ebur128", version = "=0.1.1" }
 quickcheck = "0.9"
 quickcheck_macros = "0.9"
@@ -45,7 +45,7 @@ precision-true-peak = []
 name = "ebur128"
 
 [package.metadata.capi]
-min_version = "0.6.12"
+min_version = "0.9.1"
 
 [package.metadata.capi.header]
 name = "ebur128.h"

@@ -7,6 +7,27 @@ specifically the [variant used by Rust](http://doc.crates.io/manifest.html#the-v
 
 ## [Unreleased] - TBD
 
+## [0.1.6] - 2021-07-13
+### Fixed
+- Flush-to-zero implementation was refactored to prevent the possibility to
+  pass it to `mem::forget()` and thus leading to UB. This was not a problem in
+  this codebase.
+
+### Added
+- Specialized, optimized implementation for common interpolations. This speeds
+  up the resampling/interpolation used by the true peak detection for mono,
+  stereo and four channels by a factor of 2-5x.
+- Buffer-less true peak scanning instead of the previous implementation that
+  goes via a temporary buffer. This speeds up true peak detection even more.
+- Add seeding API for supporting chunked analysis, i.e. analyzing a bigger
+  input split into separate chunks in parallel.
+
+### Changed
+- Various refactoring.
+- `unsafe` code was removed from the histogram handling without a measurable
+  impact on the performance.
+- Use the `dasp` crates instead of the homegrown sample/frame abstraction.
+
 ## [0.1.5] - 2020-09-07
 ### Fixed
 - Allow only a single channel when setting `DualMono` also in
@@ -64,7 +85,8 @@ specifically the [variant used by Rust](http://doc.crates.io/manifest.html#the-v
 ## 0.1.0 - 2020-01-06
 - Initial release of ebur128.
 
-[Unreleased]: https://github.com/sdroege/rust-muldiv/compare/0.1.5...HEAD
+[Unreleased]: https://github.com/sdroege/ebur128/compare/0.1.6...HEAD
+[0.1.6]: https://github.com/sdroege/ebur128/compare/0.1.5...0.1.6
 [0.1.5]: https://github.com/sdroege/ebur128/compare/0.1.4...0.1.5
 [0.1.4]: https://github.com/sdroege/ebur128/compare/0.1.3...0.1.4
 [0.1.3]: https://github.com/sdroege/ebur128/compare/0.1.2...0.1.3
